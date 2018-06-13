@@ -114,14 +114,12 @@ func PrivateKeyAsBytes(key *rsa.PrivateKey) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func CertsAsBytes(certs ...*x509.Certificate) ([]byte, error) {
+func CertAsBytes(cert *x509.Certificate) ([]byte, error) {
 	buf := &bytes.Buffer{}
 
-	for _, cert := range certs {
-		err := pem.Encode(buf, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-		if err != nil {
-			return nil, err
-		}
+	err := pem.Encode(buf, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	if err != nil {
+		return nil, err
 	}
 
 	return buf.Bytes(), nil

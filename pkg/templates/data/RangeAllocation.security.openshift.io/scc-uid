@@ -1,6 +1,0 @@
-apiVersion: security.openshift.io/v1
-data: D/8=
-kind: RangeAllocation
-metadata:
-  name: scc-uid
-range: 1000000000-1999999999/10000

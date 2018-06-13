@@ -1,5 +1,3 @@
-#!/bin/bash
-
 import: generate
 	CGO_ENABLED=0 go build ./cmd/import
 
@@ -15,3 +13,4 @@ push: image
 
 .PHONY: generate image import
 
+# docker pull docker.io/jimminter/import:latest ; docker run --dns=8.8.8.8 -i -v /root/.kube:/.kube:z -e KUBECONFIG=/.kube/config docker.io/jimminter/import:latest

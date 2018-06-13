@@ -1,6 +1,6 @@
 package: github.com/jim-minter/impexp
 import:
 - package: k8s.io/client-go
-  version: ~7.0.0
-  subpackages:
-  - discovery
+  version: kubernetes-1.10.2
+- package: k8s.io/kube-aggregator
+  version: kubernetes-1.10.2

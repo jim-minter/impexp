@@ -75,19 +75,19 @@ var Translations = map[string][]struct {
 	"APIService.apiregistration.k8s.io/v1beta1.servicecatalog.k8s.io": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertsAsBytes .ServiceCatalogCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .ServiceCatalogCACert) }}",
 		},
 	},
 	"ClusterServiceBroker.servicecatalog.k8s.io/ansible-service-broker": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertsAsBytes .AnsibleServiceBrokerCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .RootConfig.ServiceSignerCACert) }}",
 		},
 	},
 	"ClusterServiceBroker.servicecatalog.k8s.io/template-service-broker": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertsAsBytes .RootConfig.ServiceSignerCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .RootConfig.ServiceSignerCACert) }}",
 		},
 	},
 	"ConfigMap/kube-service-catalog/cluster-info": {
@@ -99,11 +99,11 @@ var Translations = map[string][]struct {
 	"ConfigMap/kube-system/extension-apiserver-authentication": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'client-ca-file'"),
-			Template: "{{ String (CertsAsBytes .RootConfig.CACert) }}",
+			Template: "{{ String (CertAsBytes .RootConfig.CACert) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'requestheader-client-ca-file'"),
-			Template: "{{ String (CertsAsBytes .RootConfig.FrontProxyCACert) }}",
+			Template: "{{ String (CertAsBytes .RootConfig.FrontProxyCACert) }}",
 		},
 	},
 	"ConfigMap/openshift-web-console/webconsole-config": {
@@ -191,7 +191,7 @@ var Translations = map[string][]struct {
 	"Secret/default/registry-certificates": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'registry.crt'"),
-			Template: "{{ Base64Encode (CertsAsBytes .RegistryCert .RootConfig.CACert) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RegistryCert) (CertAsBytes .RootConfig.CACert)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'registry.key'"),
@@ -215,7 +215,7 @@ var Translations = map[string][]struct {
 	"Secret/default/router-certs": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.crt'"),
-			Template: "{{ Base64Encode (CertsAsBytes .RouterCert .RootConfig.CACert) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RouterCert) (CertAsBytes .RootConfig.CACert) (PrivateKeyAsBytes .RouterKey)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.key'"),
@@ -225,7 +225,7 @@ var Translations = map[string][]struct {
 	"Secret/kube-service-catalog/apiserver-ssl": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.crt'"),
-			Template: "{{ Base64Encode (CertsAsBytes .ServiceCatalogAPIServerCert .ServiceCatalogCACert) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .ServiceCatalogAPIServerCert) (CertAsBytes .ServiceCatalogCACert)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.key'"),

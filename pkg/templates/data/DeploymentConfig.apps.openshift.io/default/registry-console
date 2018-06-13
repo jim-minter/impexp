@@ -24,7 +24,6 @@ spec:
     type: Rolling
   template:
     metadata:
-      annotations: {}
       labels:
         app: registry-console
         name: registry-console
