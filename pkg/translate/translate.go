@@ -75,19 +75,19 @@ var Translations = map[string][]struct {
 	"APIService.apiregistration.k8s.io/v1beta1.servicecatalog.k8s.io": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertAsBytes .ServiceCatalogCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .ServiceCatalogCaCert) }}",
 		},
 	},
 	"ClusterServiceBroker.servicecatalog.k8s.io/ansible-service-broker": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertAsBytes .RootConfig.ServiceSignerCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .ServiceSigningCaCert) }}",
 		},
 	},
 	"ClusterServiceBroker.servicecatalog.k8s.io/template-service-broker": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.caBundle"),
-			Template: "{{ Base64Encode (CertAsBytes .RootConfig.ServiceSignerCACert) }}",
+			Template: "{{ Base64Encode (CertAsBytes .ServiceSigningCaCert) }}",
 		},
 	},
 	"ConfigMap/kube-service-catalog/cluster-info": {
@@ -99,29 +99,29 @@ var Translations = map[string][]struct {
 	"ConfigMap/kube-system/extension-apiserver-authentication": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'client-ca-file'"),
-			Template: "{{ String (CertAsBytes .RootConfig.CACert) }}",
+			Template: "{{ String (CertAsBytes .CaCert) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'requestheader-client-ca-file'"),
-			Template: "{{ String (CertAsBytes .RootConfig.FrontProxyCACert) }}",
+			Template: "{{ String (CertAsBytes .FrontProxyCaCert) }}",
 		},
 	},
 	"ConfigMap/openshift-web-console/webconsole-config": {
 		{
 			Path:       jsonpath.MustCompile("$.data.'webconsole-config.yaml'"),
 			NestedPath: jsonpath.MustCompile("$.clusterInfo.consolePublicURL"),
-			Template:   "https://{{ .RootConfig.DNSPrefix }}.{{ .RootConfig.Location }}.cloudapp.azure.com:8443/console/",
+			Template:   "https://{{ .PublicHostname }}/console/",
 		},
 		{
 			Path:       jsonpath.MustCompile("$.data.'webconsole-config.yaml'"),
 			NestedPath: jsonpath.MustCompile("$.clusterInfo.masterPublicURL"),
-			Template:   "https://{{ .RootConfig.DNSPrefix }}.{{ .RootConfig.Location }}.cloudapp.azure.com:8443",
+			Template:   "https://{{ .PublicHostname }}.cloudapp.azure.com",
 		},
 	},
 	"DaemonSet.apps/kube-service-catalog/apiserver": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.template.spec.containers[0].args[6]"),
-			Template: "https://{{ .RootConfig.MasterHostname }}:2379",
+			Template: "https://{{ .EtcdHostname }}:2379",
 		},
 	},
 	"DeploymentConfig.apps.openshift.io/default/docker-registry": {
@@ -133,65 +133,65 @@ var Translations = map[string][]struct {
 	"DeploymentConfig.apps.openshift.io/default/registry-console": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.template.spec.containers[0].env[?(@.name='OPENSHIFT_OAUTH_PROVIDER_URL')].value"),
-			Template: "https://{{ .RootConfig.DNSPrefix }}.{{ .RootConfig.Location }}.cloudapp.azure.com:8443",
+			Template: "https://{{ .PublicHostname }}.cloudapp.azure.com",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.spec.template.spec.containers[0].env[?(@.name='REGISTRY_HOST')].value"),
-			Template: "docker-registry-default.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "docker-registry-default.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"OAuthClient.oauth.openshift.io/cockpit-oauth-client": {
 		{
 			Path:     jsonpath.MustCompile("$.redirectURIs[0]"),
-			Template: "https://registry-console-default.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "https://registry-console-default.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/default/docker-registry": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "docker-registry-default.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "docker-registry-default.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/default/registry-console": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "registry-console-default.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "registry-console-default.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/kube-service-catalog/apiserver": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "apiserver-kube-service-catalog.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "apiserver-kube-service-catalog.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/openshift-ansible-service-broker/asb-1338": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "asb-1338-openshift-ansible-service-broker.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "asb-1338-openshift-ansible-service-broker.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/openshift-metrics/alertmanager": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "alertmanager-openshift-metrics.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "alertmanager-openshift-metrics.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/openshift-metrics/alerts": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "alerts-openshift-metrics.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "alerts-openshift-metrics.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Route.route.openshift.io/openshift-metrics/prometheus": {
 		{
 			Path:     jsonpath.MustCompile("$.spec.host"),
-			Template: "prometheus-openshift-metrics.{{ .RootConfig.RouterIP }}.nip.io",
+			Template: "prometheus-openshift-metrics.{{ .RouterIP }}.nip.io",
 		},
 	},
 	"Secret/default/registry-certificates": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'registry.crt'"),
-			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RegistryCert) (CertAsBytes .RootConfig.CACert)) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RegistryCert) (CertAsBytes .CaCert)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'registry.key'"),
@@ -203,19 +203,19 @@ var Translations = map[string][]struct {
 			Path:        jsonpath.MustCompile("$.data.'config.yml'"),
 			NestedPath:  jsonpath.MustCompile("$.storage.azure.accountname"),
 			NestedFlags: NestedFlagsBase64,
-			Template:    "{{ .RootConfig.RegistryStorageAccount }}",
+			Template:    "{{ .RegistryStorageAccount }}",
 		},
 		{
 			Path:        jsonpath.MustCompile("$.data.'config.yml'"),
 			NestedPath:  jsonpath.MustCompile("$.storage.azure.accountkey"),
 			NestedFlags: NestedFlagsBase64,
-			Template:    "{{ .RootConfig.RegistryAccountKey }}",
+			Template:    "{{ .RegistryAccountKey }}",
 		},
 	},
 	"Secret/default/router-certs": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.crt'"),
-			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RouterCert) (CertAsBytes .RootConfig.CACert) (PrivateKeyAsBytes .RouterKey)) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .RouterCert) (CertAsBytes .CaCert) (PrivateKeyAsBytes .RouterKey)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.key'"),
@@ -225,11 +225,11 @@ var Translations = map[string][]struct {
 	"Secret/kube-service-catalog/apiserver-ssl": {
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.crt'"),
-			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .ServiceCatalogAPIServerCert) (CertAsBytes .ServiceCatalogCACert)) }}",
+			Template: "{{ Base64Encode (JoinBytes (CertAsBytes .ServiceCatalogServerCert) (CertAsBytes .ServiceCatalogCaCert)) }}",
 		},
 		{
 			Path:     jsonpath.MustCompile("$.data.'tls.key'"),
-			Template: "{{ Base64Encode (PrivateKeyAsBytes .ServiceCatalogAPIServerKey) }}",
+			Template: "{{ Base64Encode (PrivateKeyAsBytes .ServiceCatalogServerKey) }}",
 		},
 	},
 	"Secret/openshift-metrics/alertmanager-proxy": {

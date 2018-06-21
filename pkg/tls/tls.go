@@ -175,6 +175,22 @@ func MustParseBase64Cert(s string) *x509.Certificate {
 	return cert
 }
 
+func ParseBase64PublicKey(s string) (*rsa.PublicKey, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+
+	block, _ := pem.Decode(b)
+
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return key.(*rsa.PublicKey), nil
+}
+
 func intsha1(n *big.Int) []byte {
 	h := sha1.New()
 	h.Write(n.Bytes())

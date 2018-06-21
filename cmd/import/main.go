@@ -2,20 +2,21 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"log"
 	"net"
 	"reflect"
 	"sort"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/ghodss/yaml"
-	"github.com/jim-minter/impexp/pkg/encoding/configmap"
 	"github.com/jim-minter/impexp/pkg/templates"
 	"github.com/jim-minter/impexp/pkg/tls"
 	"github.com/jim-minter/impexp/pkg/translate"
@@ -27,223 +28,125 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/client-go/util/retry"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	kaggregator "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 )
 
-const (
-	impexpNamespace   = "openshift-impexp"
-	derivedConfigName = "derivedconfig"
-	rootConfigName    = "rootconfig"
-)
-
-// rootConfig contains configuration items which are provided externally, e.g.
-// acs-engine configurables, Azure environment, external OpenShift cluster-level
-// configurables.  It is read in from the `openshift-impexp/rootconfig`
-// ConfigMap.  Note: these values may not be constant over the lifetime of a
-// cluster.
-var rootConfig = struct {
-	DNSPrefix              string
-	Location               string
-	RouterIP               net.IP
-	MasterHostname         string
-	RegistryStorageAccount string
-	RegistryAccountKey     string
-	CAKey                  *rsa.PrivateKey
-	CACert                 *x509.Certificate
-	ServiceSignerCACert    *x509.Certificate
-	FrontProxyCACert       *x509.Certificate
-}{}
-
-// derivedConfig contains configuration items which are derivable from
-// rootConfig, or which are scoped to objects running within the OpenShift
-// cluster.  It is persisted in the `openshift-impexp/derivedconfig` ConfigMap.
-// derivedConfig is the struct passed into template.Execute() to populate
-// configuration items on import.
-// TODO: presumably this struct needs a version field and migration
-// functionality.
-var derivedConfig = struct {
-	RootConfig                     interface{} `configmap:"-"`
+type config struct {
+	PublicHostname                 string
+	RouterIP                       net.IP
+	EtcdHostname                   string
+	RegistryStorageAccount         string
+	RegistryAccountKey             string
+	CaKey                          *rsa.PrivateKey
+	CaCert                         *x509.Certificate
+	ServiceSigningCaCert           *x509.Certificate
+	FrontProxyCaCert               *x509.Certificate
 	RegistryServiceIP              net.IP
 	RegistryHTTPSecret             []byte
 	AlertManagerProxySessionSecret []byte
 	AlertsProxySessionSecret       []byte
 	PrometheusProxySessionSecret   []byte
 	ServiceCatalogClusterID        uuid.UUID
-	ServiceCatalogCAKey            *rsa.PrivateKey
-	ServiceCatalogCACert           *x509.Certificate
-	ServiceCatalogAPIServerKey     *rsa.PrivateKey
-	ServiceCatalogAPIServerCert    *x509.Certificate
+	ServiceCatalogCaKey            *rsa.PrivateKey
+	ServiceCatalogCaCert           *x509.Certificate
+	ServiceCatalogServerKey        *rsa.PrivateKey
+	ServiceCatalogServerCert       *x509.Certificate
 	RegistryKey                    *rsa.PrivateKey
 	RegistryCert                   *x509.Certificate
 	RouterKey                      *rsa.PrivateKey
 	RouterCert                     *x509.Certificate
-}{}
+}
 
-var (
-	restconfig *rest.Config
-	kc         *kubernetes.Clientset
-	ac         *kaggregator.Clientset
-)
-
-// loadRootConfig loads the rootConfig object from its ConfigMap.
-func loadRootConfig() error {
-	cm, err := kc.CoreV1().ConfigMaps(impexpNamespace).Get(rootConfigName, metav1.GetOptions{})
+func (c *config) UnmarshalJSON(b []byte) error {
+	m := map[string]interface{}{}
+	err := json.Unmarshal(b, &m)
 	if err != nil {
 		return err
 	}
 
-	return configmap.Unmarshal(cm, &rootConfig)
-}
+	v := reflect.ValueOf(c).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		k := v.Type().Field(i).Name
+		k = string(unicode.ToLower(rune(k[0]))) + k[1:]
 
-// makeSecret returns a byte slice with 32 random bytes.
-func makeSecret() ([]byte, error) {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
-		return nil, err
-	}
+		if _, exists := m[k]; !exists {
+			continue
+		}
 
-	return b, nil
-}
+		switch v.Field(i).Type() {
+		case reflect.TypeOf(net.IP{}):
+			ip := net.ParseIP(m[k].(string))
+			v.Field(i).Set(reflect.ValueOf(ip))
 
-// loadDerivedConfig loads the derivedConfig object from its ConfigMap, if it
-// exists.
-func loadDerivedConfig() error {
-	cm, err := kc.CoreV1().ConfigMaps(impexpNamespace).Get(derivedConfigName, metav1.GetOptions{})
-	switch {
-	case err == nil:
-		return configmap.Unmarshal(cm, &derivedConfig)
-	case kerrors.IsNotFound(err):
-		return nil
-	default:
-		return err
-	}
-}
+		case reflect.TypeOf(&rsa.PrivateKey{}):
+			key, err := tls.ParseBase64PrivateKey(m[k].(string))
+			if err != nil {
+				return err
+			}
+			v.Field(i).Set(reflect.ValueOf(key))
 
-// defaultDerivedConfig populates non-existent entries in the derivedConfig
-// object.
-func defaultDerivedConfig() error {
-	var err error
+		case reflect.TypeOf(&rsa.PublicKey{}):
+			key, err := tls.ParseBase64PublicKey(m[k].(string))
+			if err != nil {
+				return err
+			}
+			v.Field(i).Set(reflect.ValueOf(key))
 
-	derivedConfig.RootConfig = &rootConfig
+		case reflect.TypeOf(uuid.UUID{}):
+			u, err := uuid.FromString(m[k].(string))
+			if err != nil {
+				return err
+			}
+			v.Field(i).Set(reflect.ValueOf(u))
 
-	if derivedConfig.RegistryServiceIP == nil {
-		derivedConfig.RegistryServiceIP = net.ParseIP("172.30.190.177") // TODO: choose a particular IP address?
-	}
-	if derivedConfig.RegistryHTTPSecret == nil {
-		if derivedConfig.RegistryHTTPSecret, err = makeSecret(); err != nil {
-			return err
-		}
-	}
-	if derivedConfig.AlertManagerProxySessionSecret == nil {
-		if derivedConfig.AlertManagerProxySessionSecret, err = makeSecret(); err != nil {
-			return err
-		}
-	}
-	if derivedConfig.AlertsProxySessionSecret == nil {
-		if derivedConfig.AlertsProxySessionSecret, err = makeSecret(); err != nil {
-			return err
-		}
-	}
-	if derivedConfig.PrometheusProxySessionSecret == nil {
-		if derivedConfig.PrometheusProxySessionSecret, err = makeSecret(); err != nil {
-			return err
-		}
-	}
-	if derivedConfig.ServiceCatalogClusterID == uuid.Nil {
-		if derivedConfig.ServiceCatalogClusterID, err = uuid.NewV4(); err != nil {
-			return err
-		}
-	}
-	// TODO: get the service catalog to use
-	// service.alpha.openshift.io/serving-cert-secret-name.
-	if derivedConfig.ServiceCatalogCAKey == nil || derivedConfig.ServiceCatalogCACert == nil {
-		derivedConfig.ServiceCatalogCAKey, derivedConfig.ServiceCatalogCACert, err =
-			tls.NewCA("service-catalog-signer")
-		if err != nil {
-			return err
-		}
-	}
-	if derivedConfig.ServiceCatalogAPIServerKey == nil || derivedConfig.ServiceCatalogAPIServerCert == nil {
-		derivedConfig.ServiceCatalogAPIServerKey, derivedConfig.ServiceCatalogAPIServerCert, err =
-			tls.NewCert("apiserver.kube-service-catalog",
-				[]string{"apiserver.kube-service-catalog",
-					"apiserver.kube-service-catalog.svc",
-					"apiserver.kube-service-catalog.svc.cluster.local",
-				},
-				nil,
-				derivedConfig.ServiceCatalogCAKey,
-				derivedConfig.ServiceCatalogCACert)
-		if err != nil {
-			return err
-		}
-	}
-	// TODO: is it possible for the registry to use
-	// service.alpha.openshift.io/serving-cert-secret-name?
-	if derivedConfig.RegistryKey == nil || derivedConfig.RegistryCert == nil {
-		derivedConfig.RegistryKey, derivedConfig.RegistryCert, err =
-			tls.NewCert(derivedConfig.RegistryServiceIP.String(),
-				[]string{"docker-registry-default." + derivedConfig.RegistryServiceIP.String() + ".nip.io",
-					"docker-registry.default.svc",
-					"docker-registry.default.svc.cluster.local",
-				},
-				[]net.IP{derivedConfig.RegistryServiceIP},
-				rootConfig.CAKey,
-				rootConfig.CACert)
-		if err != nil {
-			return err
-		}
-	}
-	// TODO: the router CN and SANs should be configurables.
-	if derivedConfig.RouterKey == nil || derivedConfig.RouterCert == nil {
-		derivedConfig.RouterKey, derivedConfig.RouterCert, err =
-			tls.NewCert("*."+rootConfig.RouterIP.String()+".nip.io",
-				[]string{"*." + rootConfig.RouterIP.String() + ".nip.io",
-					rootConfig.RouterIP.String() + ".nip.io",
-				},
-				nil,
-				rootConfig.CAKey,
-				rootConfig.CACert)
-		if err != nil {
-			return err
+		case reflect.TypeOf(&v1.Config{}):
+			b, err := base64.StdEncoding.DecodeString(m[k].(string))
+			if err != nil {
+				return err
+			}
+
+			var c v1.Config
+			err = yaml.Unmarshal(b, &c)
+			if err != nil {
+				return err
+			}
+
+			v.Field(i).Set(reflect.ValueOf(&c))
+
+		case reflect.TypeOf(&x509.Certificate{}):
+			cert, err := tls.ParseBase64Cert(m[k].(string))
+			if err != nil {
+				return err
+			}
+			v.Field(i).Set(reflect.ValueOf(cert))
+
+		case reflect.TypeOf([]byte{}):
+			b, err := base64.StdEncoding.DecodeString(m[k].(string))
+			if err != nil {
+				return err
+			}
+
+			v.Field(i).Set(reflect.ValueOf(b))
+
+		default:
+			v.Field(i).Set(reflect.ValueOf(m[k]))
 		}
 	}
 
 	return nil
 }
 
-// saveDerivedConfig persists the derivedConfig to its ConfigMap.
-func saveDerivedConfig() error {
-	cm, err := configmap.Marshal(&derivedConfig)
-	if err != nil {
-		return err
-	}
-	cm.ObjectMeta = metav1.ObjectMeta{
-		Name:      derivedConfigName,
-		Namespace: impexpNamespace,
-	}
+var c config
 
-	_, err = kc.CoreV1().ConfigMaps(impexpNamespace).Create(cm)
-	if kerrors.IsAlreadyExists(err) {
-		err = retry.RetryOnConflict(retry.DefaultRetry, func() (err error) {
-			existing, err := kc.CoreV1().ConfigMaps(impexpNamespace).Get(derivedConfigName, metav1.GetOptions{})
-			if err != nil {
-				return
-			}
-
-			cm.ObjectMeta = existing.ObjectMeta
-			_, err = kc.CoreV1().ConfigMaps(impexpNamespace).Update(cm)
-			return
-		})
-	}
-
-	return err
-}
+var (
+	restconfig *rest.Config
+	ac         *kaggregator.Clientset
+)
 
 // readDB reads previously exported objects into a map via go-bindata as well as
 // populating configuration items via translate.Translate().
@@ -287,7 +190,7 @@ func readDB() (map[string]unstructured.Unstructured, error) {
 			}
 
 			b := &bytes.Buffer{}
-			err = t.Execute(b, derivedConfig)
+			err = t.Execute(b, c)
 			if err != nil {
 				return nil, err
 			}
@@ -498,11 +401,6 @@ func getClients() (err error) {
 		return
 	}
 
-	kc, err = kubernetes.NewForConfig(restconfig)
-	if err != nil {
-		return err
-	}
-
 	ac, err = kaggregator.NewForConfig(restconfig)
 	return
 }
@@ -513,22 +411,12 @@ func main() {
 		panic(err)
 	}
 
-	err = loadRootConfig()
+	b, err := ioutil.ReadFile("/tmp/config/config")
 	if err != nil {
 		panic(err)
 	}
 
-	err = loadDerivedConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	err = defaultDerivedConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	err = saveDerivedConfig()
+	err = yaml.Unmarshal(b, &c)
 	if err != nil {
 		panic(err)
 	}
